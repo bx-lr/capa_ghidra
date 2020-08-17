@@ -193,6 +193,7 @@ def main():
 	#TODO: add chooser to record capa ouput
 	#TODO: add chooser to pick which thing to run
 	#TODO: add chooser to run and only list what can be modified
+	#TODO: check base addrs and auto adjust
 	capa_json = run_capa()
 	if type(capa_json) == type(None):
 		print('[!] exiting...')
