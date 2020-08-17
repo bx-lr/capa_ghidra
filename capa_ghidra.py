@@ -36,6 +36,10 @@ def run_capa(log=False):
 	#setup our command 
 	flags = ' --vv --color never -j -r'
 	pipe_buf_size = 50*1024*1024
+	if type(CAPAEXE) != type(str()):
+		CAPAEXE = CAPAEXE.path
+	if type(CAPARULE) != type(str()):
+		CAPARULE = CAPARULE.path
 	command = CAPAEXE + flags + ' %s ' % CAPARULE + sample
 
 	#execute and get the results 
