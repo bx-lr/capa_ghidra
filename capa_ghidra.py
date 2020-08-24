@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import array
 from subprocess import Popen, PIPE
 
 from capaghidra.config import CAPAEXE
@@ -9,13 +10,16 @@ from capaghidra.config import CAPARULE
 from capaghidra.ghidra_helper import current_file_path
 from capaghidra.ghidra_helper import is_auto_symbol
 from capaghidra.ghidra_helper import add_bookmark_comment
+from capaghidra.ghidra_helper import write_and_get_path
+from capaghidra.ghidra_helper import rebase_list
+from capaghidra.ghidra_helper import rebase_item
 
 import ghidra.app.script.GhidraScript
 from ghidra.program.model.symbol import SourceType
 from ghidra.framework.model import DomainFile
 from ghidra.framework.model import DomainFolder
 
-def run_capa(log=False):
+def run_capa(blob=None, arch=None, log=False):
 	global CAPAEXE
 	global CAPARULE
 
@@ -29,12 +33,19 @@ def run_capa(log=False):
 		print("[!] CANCELLED: " + str(e))
 		return None
 
+	if type(blob) != type(None):
+		sample = write_and_get_path(blob)
+		if arch == 'x86':
+			flags = ' --vv --color never -j -f sc32 -r'
+		else:
+			flags = ' --vv -color never -j -f sc64 -r'
+	else:
+		#get the path to the sample
+		sample = current_file_path()
 
-	#get the path to the sample
-	sample = current_file_path()
+		#setup our command 
+		flags = ' --vv --color never -j -r'
 
-	#setup our command 
-	flags = ' --vv --color never -j -r'
 	pipe_buf_size = 50*1024*1024
 	if type(CAPAEXE) != type(str()):
 		CAPAEXE = CAPAEXE.path
@@ -61,7 +72,7 @@ def run_capa(log=False):
 			json.dump(output, wfile, indent=4, sort_keys=True)
 	return output
 
-def process_capa_for_rename(capa_json, funcs, baseaddress):
+def process_capa_for_rename(capa_json, funcs, capabase, base):
 	#returns dict with keys as the location
 	#value as the new name
 
@@ -93,16 +104,24 @@ def process_capa_for_rename(capa_json, funcs, baseaddress):
 		if type(v) != type(None):
 			try:
 				#clear out junk
-				i = int(k)
-				if i > int(baseaddress):
-					output[k]=v
-			except:
-				continue
+				#print('addr: ', k)
+				#print('new addr: ', nk)
+				#i = int(k)
+				if int(k) > int(capabase):
+					nk = rebase_item(k, capabase, base)
+					try:
+						del output[k]
+					except KeyError:
+						pass
+					output[nk] = v
+			except Exception as e:
+				#print e
+				pass
 	print('Found %d functions to rename...' % len(output.keys()))
 	return output
 
 
-def process_capa_for_label(capa_json, baseaddress):
+def process_capa_for_label(capa_json, capabase, base):
 	#returns a dict with keys set to rule name and value is list of locations
 
 	output={}
@@ -155,15 +174,20 @@ def process_capa_for_label(capa_json, baseaddress):
 		#print v, len(v)
 		if len(v) < 1:
 			try:
-				del output[key]
+				del output[k]
 			except KeyError:
 				pass
+		else:
+			v = rebase_list(v, capabase, base)
+			output[k]=v
 		i += len(v)
 	print("Found %d locations to label" % i)
 	return output
 
 
 def rename_functions(to_rename):
+	#TODO: sometimes vivisect has a different function head then ghidra... we need to check for this and update 
+	#print to_rename.keys()
 	all_functions = currentProgram.getFunctionManager().getFunctionsNoStubs(True)
 	num_renamed = 0
 	while (all_functions.iterator().hasNext()):
@@ -172,8 +196,9 @@ def rename_functions(to_rename):
 			continue
 		name = func.name
 		ep = int(str(func.getEntryPoint()),16)
+
 		if name.startswith('FUN_',0,4):
-				#print name, ep
+				#print 'name: ', name, 'ep:', ep
 				if str(ep) in to_rename:
 					#print name, ep, to_rename[str(ep)]
 					new_fn = to_rename[str(ep)] + '_@_' + func.name
@@ -195,10 +220,30 @@ def add_rule_hits(to_comment):
 
 def main():
 	#TODO: add chooser to record capa ouput
-	#TODO: add chooser to pick which thing to run
-	#TODO: add chooser to run and only list what can be modified
-	#TODO: check base addrs and auto adjust
-	capa_json = run_capa()
+
+	try:
+		choice = askChoice('Execution Options', 'Select file to process', ['Main executable', 'RAM segment'], 'Main Executable')
+	except:
+		sys.exit(0)
+
+	if choice == 'RAM segment':
+		try:
+			base = askAddress('Segment Base', 'Enter segment base to process')
+			arch = askChoice('Architecture Options', 'Select memory page architecture', ['x86', 'x64'], 'x86')
+		except:
+			sys.exit(0)
+		all_pages = currentProgram.getMemory()
+		for page in all_pages:
+			if base == page.minAddress:
+				page_sz = int(str(page.maxAddress), 16) - int(str(page.minAddress), 16)
+				page_bin = array.array('b', '\x00'*page_sz)
+				bytes_read = all_pages.getBytes(base, page_bin)
+				print("Read %d bytes from page %s" % (bytes_read, base))
+				base = int(str(base), 16)
+				capa_json = run_capa(blob=page_bin, arch=arch)
+	else:
+		capa_json = run_capa()
+		base = int(str(currentProgram.getMinAddress()), 16)
 	if type(capa_json) == type(None):
 		print('[!] exiting...')
 		sys.exit(0)
@@ -210,12 +255,12 @@ def main():
 	#process capa dict and extract functions / rule hits to rename functions... 
 	#key is each function address 
 	#value is new function name
-	to_rename = process_capa_for_rename(capa_json, funcs, capabase)
+	to_rename = process_capa_for_rename(capa_json, funcs, capabase, base)
 
 	#process capa dict and extract exact rule hit locations
 	#key is rule name 
 	#value is locations of hits
-	to_comment = process_capa_for_label(capa_json, capabase)
+	to_comment = process_capa_for_label(capa_json, capabase, base)
 
 	#do the function renaming 
 	num_renamed = rename_functions(to_rename)
@@ -223,7 +268,7 @@ def main():
 
 	#add bookmarks and comments for rule hit locations
 	num_comments = add_rule_hits(to_comment)
-	print('Added %d comments' % num_comments)
+	print('Added %d bookmarks' % num_comments)
 
 	return
 if __name__ == '__main__':
