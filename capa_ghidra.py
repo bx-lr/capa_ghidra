@@ -20,6 +20,8 @@ from ghidra.framework.model import DomainFile
 from ghidra.framework.model import DomainFolder
 
 def run_capa(blob=None, arch=None, log=False):
+	#return type dict
+
 	global CAPAEXE
 	global CAPARULE
 
@@ -107,7 +109,7 @@ def process_capa_for_rename(capa_json, funcs, capabase, base):
 				#print('addr: ', k)
 				#print('new addr: ', nk)
 				#i = int(k)
-				if int(k) > int(capabase):
+				if long(k) > long(capabase):
 					nk = rebase_item(k, capabase, base)
 					try:
 						del output[k]
@@ -121,7 +123,7 @@ def process_capa_for_rename(capa_json, funcs, capabase, base):
 	return output
 
 
-def process_capa_for_label(capa_json, capabase, base):
+def process_capa_for_bookmark(capa_json, capabase, base):
 	#returns a dict with keys set to rule name and value is list of locations
 
 	output={}
@@ -129,7 +131,7 @@ def process_capa_for_label(capa_json, capabase, base):
 	for rulename, more in capa_json['rules'].iteritems():
 		output[rulename] = list()
 		for mkey, vals in more.iteritems():
-			#print 'KEY', key
+			#print 'KEY', mkey
 			#print 'VALS', vals
 			try:
 				for matches, children in vals.iteritems():
@@ -145,7 +147,6 @@ def process_capa_for_label(capa_json, capabase, base):
 									for i in xrange(0, len(locations)):
 										#print 'locations[%d]' % i 
 										#print 'locations', locations[i]
-
 										try:
 											for key, val in dict(locations[i]).iteritems():
 												#print 'key', key
@@ -154,19 +155,24 @@ def process_capa_for_label(capa_json, capabase, base):
 												try:
 													if type(val) == type(list()):
 														if len(val) > 0:
-															if type(val[0]) == type(int()):
+															if (type(val[0]) == type(int())) or (type(val[0]) == type(long())):
 																#print 'VALUE!!!', val
 																for v in val:
 																	output[rulename].append(v)
-												except:
+												except Exception as e:
+													#print '5', e
 													pass
-										except:
+										except Exception as e:
+											#print '4', e
 											pass
-							except:
+							except Exception as e:
+								#print '3', e
 								pass
-					except:
+					except Exception as e:
+						#print '2', e
 						pass
-			except:
+			except Exception as e:
+				#print '1', e
 				pass
 	i = 0
 	for k,v in output.iteritems():
@@ -181,37 +187,52 @@ def process_capa_for_label(capa_json, capabase, base):
 			v = rebase_list(v, capabase, base)
 			output[k]=v
 		i += len(v)
-	print("Found %d locations to label" % i)
+	print("Found %d locations to bookmark..." % i)
 	return output
 
 
 def rename_functions(to_rename):
+	#return type list
 	#TODO: sometimes vivisect has a different function head then ghidra... we need to check for this and update 
 	#print to_rename.keys()
+
 	all_functions = currentProgram.getFunctionManager().getFunctionsNoStubs(True)
 	num_renamed = 0
+	num_skipped = 0
+	#print to_rename
 	while (all_functions.iterator().hasNext()):
 		func = all_functions.iterator().next()
 		if not is_auto_symbol(func):
 			continue
 		name = func.name
-		ep = int(str(func.getEntryPoint()),16)
-
+		ep =  long(str(func.getEntryPoint()),16)
+		#print '%x' % ep
+		#if str(ep) in to_rename:
+		#	print 'Found function at address: %x' % ep
 		if name.startswith('FUN_',0,4):
-				#print 'name: ', name, 'ep:', ep
+				#print 'name: ', name, 'ep:', ep, 'keys:', to_rename.keys()
+				#print to_rename
+				#break
 				if str(ep) in to_rename:
+					#print "IN IT!!!!"
 					#print name, ep, to_rename[str(ep)]
 					new_fn = to_rename[str(ep)] + '_@_' + func.name
 					print('Renaming function "%s" to "%s"' % (func.name, new_fn))
 					func.setName(new_fn, SourceType.ANALYSIS)
 					num_renamed += 1
+		else:
+			#print "Non-default name found at address %x ... skipping" % ep
+			num_skipped += 1
+	#print "Skipped %d functions because of non-default name" % num_skipped
 	#print "renamed %d functions..." % num_renamed
-	return num_renamed
+	return [num_renamed, num_skipped]
 
 def add_rule_hits(to_comment):
+	#return type int
 	i = 0
 	for k, v in to_comment.iteritems():
 		#print k
+
 		for addr in v:
 			#print addr
 			add_bookmark_comment(addr, k)
@@ -235,15 +256,15 @@ def main():
 		all_pages = currentProgram.getMemory()
 		for page in all_pages:
 			if base == page.minAddress:
-				page_sz = int(str(page.maxAddress), 16) - int(str(page.minAddress), 16)
+				page_sz = long(str(page.maxAddress), 16) - long(str(page.minAddress), 16)
 				page_bin = array.array('b', '\x00'*page_sz)
 				bytes_read = all_pages.getBytes(base, page_bin)
 				print("Read %d bytes from page %s" % (bytes_read, base))
-				base = int(str(base), 16)
+				base = long(str(base), 16)
 				capa_json = run_capa(blob=page_bin, arch=arch)
 	else:
 		capa_json = run_capa()
-		base = int(str(currentProgram.getMinAddress()), 16)
+		base = long(str(currentProgram.getMinAddress()), 16)
 	if type(capa_json) == type(None):
 		print('[!] exiting...')
 		sys.exit(0)
@@ -260,11 +281,12 @@ def main():
 	#process capa dict and extract exact rule hit locations
 	#key is rule name 
 	#value is locations of hits
-	to_comment = process_capa_for_label(capa_json, capabase, base)
+	to_comment = process_capa_for_bookmark(capa_json, capabase, base)
 
 	#do the function renaming 
 	num_renamed = rename_functions(to_rename)
-	print('Renamed %d functions' % num_renamed)
+	print('Renamed %d functions' % (num_renamed[0]))
+	print('Skipped %d functions with non-default name' % num_renamed[1])
 
 	#add bookmarks and comments for rule hit locations
 	num_comments = add_rule_hits(to_comment)

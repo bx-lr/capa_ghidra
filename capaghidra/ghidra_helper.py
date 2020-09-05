@@ -39,11 +39,16 @@ def rebase_list(li, base1, base2):
 
 	for i in li:
 		#print 'rebase_list: ', i, base1, base2
-		tmp = int(i)-int(base1)+int(base2)
+		tmp = long(i)-long(base1)+long(base2)
 		new_addrs.append(tmp)
 	return new_addrs
 
 def rebase_item(addr, base1, base2):
 	#print 'rebase_item: ', addr, base1, base2
 	#print '        new: ', int(addr)-int(base1)+int(base2), hex(int(addr)-int(base1)+int(base2))
-	return str(int(addr)-int(base1)+int(base2))
+	return str(long(addr)-long(base1)+long(base2))
+
+def get_int_str(addr):
+	#take in string in the form of '  0x180001910L'
+	#return string in form of '6442457360'
+	return str(long(addr.replace('L', '').replace('\n', ''), 16))
