@@ -14,10 +14,17 @@ def current_file_path():
 
 
 def add_bookmark_comment(addr, text):
+	#print 'addr', addr
+	#print 'text', text
 	addr = toAddr(addr)
-	cu = currentProgram.getListing().getCodeUnitAt(addr)
-	createBookmark(addr, "Capa Ghidra", text)
-	cu.setComment(CodeUnit.EOL_COMMENT, text)
+	try:
+		cu = currentProgram.getListing().getCodeUnitAt(addr)
+		#print 'type', type(cu)
+		createBookmark(addr, "Capa Ghidra", text)
+		cu.setComment(CodeUnit.EOL_COMMENT, text)
+	except Exception as e:
+		print 'Unable to place bookmark at: ', addr
+		print 'With text "%s"' % text
 	return
 
 def is_auto_symbol(func):
