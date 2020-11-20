@@ -40,7 +40,7 @@ def run_capa(blob=None, arch=None, log=False):
 		if arch == 'x86':
 			flags = ' --vv --color never -j -f sc32 -r'
 		else:
-			flags = ' --vv -color never -j -f sc64 -r'
+			flags = ' --vv --color never -j -f sc64 -r'
 	else:
 		#get the path to the sample
 		sample = current_file_path()
